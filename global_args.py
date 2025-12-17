@@ -263,7 +263,18 @@ def single_preprocess(args):
         # Ensure args.gpu_idx is a list, even if a single int is provided
         if isinstance(args.gpu_idx, int):
             args.gpu_idx = [args.gpu_idx]
-        device = torch.device(f"cuda:{args.gpu_idx[0]}")
+
+        # Validate the specified GPU index
+        if args.gpu_idx[0] < torch.cuda.device_count():
+            device = torch.device(f"cuda:{args.gpu_idx[0]}")
+        else:
+            print(f"Warning: Specified GPU index {args.gpu_idx[0]} is invalid. "
+                  f"Only {torch.cuda.device_count()} CUDA devices available. "
+                  f"Falling back to cuda:0 if available, otherwise CPU.")
+            if torch.cuda.device_count() > 0:
+                device = torch.device("cuda:0")
+            else:
+                device = torch.device("cpu")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
