@@ -1,0 +1,48 @@
+# ==========================================
+# Federated Learning Configuration (Tuned)
+# CIFAR-10 + FedOpt (Target: 80–85% Accuracy)
+# ==========================================
+
+dataset: CIFAR10
+model: resnet18        # you can later switch to resnet18 for 85%+
+algorithm: FedOpt
+aggregator: FedOpt
+
+# --- Client Configuration ---
+num_clients: 20
+clients_per_round: 15
+local_epochs: 10           # longer local training improves accuracy
+batch_size: 64
+lr: 0.001                  # smaller LR for smoother convergence
+optimizer: Adam            # Adam helps stability
+criterion: CrossEntropyLoss
+
+# --- Server Configuration (FedOpt) ---
+server_optimizer: Adam
+server_lr: 0.001
+server_momentum: 0.9
+
+# --- Global Training Rounds ---
+num_rounds: 400            # more rounds → better convergence
+
+# --- Data & Setup ---
+iid: True                  # IID setup boosts accuracy baseline
+num_shards: 200
+benchmark: False
+seed: 42
+num_workers: 0             # Explicitly set to 0 for Windows compatibility
+
+# --- Logging & Output ---
+save_model: True
+verbose: True
+save_path: outputs/fedopt_cifar10_best/
+
+# --- Attack Config ---
+attack: NoAttack
+num_adv: 0
+
+# defense_params:
+#   reputation_threshold: 0.8
+
+# --- Hardware ---
+gpu_idx: 0

@@ -1,0 +1,19 @@
+{
+  "total_time": 144.9202024936676,
+  "best_test_accuracy": 0.0,
+  "final_test_accuracy": 0.0,
+  "num_rounds": 1,
+  "rounds": [
+    {
+      "round": 0,
+      "train_acc": 0.10260416666666666,
+      "train_loss": 0.035962130849560105,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 30,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 97.8828399181366
+    }
+  ]
+}

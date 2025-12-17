@@ -1,0 +1,63 @@
+{
+  "total_time": 13.411744594573975,
+  "best_test_accuracy": 0.0,
+  "final_test_accuracy": 0.0,
+  "num_rounds": 5,
+  "rounds": [
+    {
+      "round": 0,
+      "train_acc": 0.11125,
+      "train_loss": 0.02143913596868515,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 5,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 2.507051944732666
+    },
+    {
+      "round": 1,
+      "train_acc": 0.11875,
+      "train_loss": 0.021267326623201372,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 5,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 2.5576844215393066
+    },
+    {
+      "round": 2,
+      "train_acc": 0.140625,
+      "train_loss": 0.021036094278097155,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 5,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 2.6738908290863037
+    },
+    {
+      "round": 3,
+      "train_acc": 0.14625,
+      "train_loss": 0.020782680362462995,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 5,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 2.5233991146087646
+    },
+    {
+      "round": 4,
+      "train_acc": 0.1525,
+      "train_loss": 0.020297348871827124,
+      "test_acc": 0.0,
+      "test_loss": 0.0,
+      "active_clients": 5,
+      "stragglers": 0,
+      "dropouts": 0,
+      "round_time": 2.5687832832336426
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+numpy
+scipy
+scikit-learn
+pandas
+matplotlib
+seaborn
+tqdm
+Pillow
+pyyaml
+requests
+# add any extras you expect to use:
+torch            # already installed above; harmless to list
+torchvision
+torchaudio

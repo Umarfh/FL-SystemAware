@@ -1,0 +1,182 @@
+seed: 4, epochs: 5, algorithm: FedOpt, optimizer: SGD, momentum: 0.9, weight_decay: 0.0005, num_clients: 5, batch_size: 64, learning_rate: 0.01, local_epochs: 5, model: lenet, dataset: MNIST, distribution: non-iid, im_iid_gamma: 0.01, tail_cls_from: 4, dirichlet_alpha: 0.5, cache_partition: False, gpu_idx: [0], num_workers: 0, record_time: False, num_adv: 2, attack: AdaptiveAttack, defense: SystemAware, attack_params: None, defense_params: None, benchmark: False, num_shards: 200, num_training_sample: 60000, num_channels: 1, num_classes: 10, mean: (0.1307,), std: (0.3081,), device: cpu, num_attackers: 2, aggregator: SystemAware, output: ./logs/FedOpt/MNIST_lenet/non-iid/MNIST_lenet_non-iid_AdaptiveAttack_SystemAware_5_5_0.01_FedOpt.txt
+
+
+======================================================================
+FEDERATED LEARNING SETUP
+======================================================================
+Started at: Sat Oct 11 02:55:00 2025
+Random seed: 4
+
+[Step 1/3] Loading and partitioning data...
+  ✓ Loaded MNIST dataset
+    - Train samples: 60000
+    - Test samples: 10000
+Generating new dataset split: non-iid
+Number of clients: 5, Type: <class 'int'>
+Performing Dirichlet non-iid partition (alpha=0.5)
+Calling dirichlet_split_noniid with: labels, alpha=0.5, n_clients=5
+Converting client indices to torch tensors...
+Successfully created 5 client partitions
+Validating partitions...
+Total samples distributed: 60000/60000
+Client 0: 18180 samples
+Client 1: 11649 samples
+Client 2: 9664 samples
+Client 3: 8085 samples
+Client 4: 12422 samples
+non-iid partition finished successfully.
+  ✓ Data partitioned across 5 clients
+
+[Step 2/3] Initializing clients and server...
+  ✓ Created 5 clients
+  ✓ Server initialized with SystemAware aggregator
+  ✓ FL algorithm configured
+
+[Step 3/3] Configuration Summary:
+  • Dataset.................. MNIST
+  • Model.................... lenet
+  • Total Clients............ 5
+  • Training Rounds.......... 5
+  • Local Epochs............. 5
+  • Batch Size............... 64
+  • Learning Rate............ 0.01
+  • Data Distribution........ non-iid
+
+  Features:
+    ✓ Byzantine Attack: 2 malicious clients
+
+======================================================================
+SETUP COMPLETE - STARTING TRAINING
+======================================================================
+
+
+======================================================================
+Round 1/5
+======================================================================
+[Participation] 5/5 clients selected
+
+[Phase 1: Client Training]
+  Completed: 5/5 clients
+
+[Phase 3: Aggregation]
+  ✓ Global model updated
+
+[Phase 4: Evaluation]
+  ✗ Evaluation failed: 'Server' object has no attribute 'get_dataloader'
+
+======================================================================
+Round 1 Summary
+----------------------------------------------------------------------
+  Train Acc:  0.1163
+  Train Loss: 0.0214
+  Test Acc:   0.0000
+  Test Loss:  0.0000
+  Round Time: 0.71s
+======================================================================
+
+
+======================================================================
+Round 2/5
+======================================================================
+[Participation] 5/5 clients selected
+
+[Phase 1: Client Training]
+  Completed: 5/5 clients
+
+[Phase 3: Aggregation]
+  ✓ Global model updated
+
+[Phase 4: Evaluation]
+  ✗ Evaluation failed: 'Server' object has no attribute 'get_dataloader'
+
+======================================================================
+Round 2 Summary
+----------------------------------------------------------------------
+  Train Acc:  0.0575
+  Train Loss: 0.0215
+  Test Acc:   0.0000
+  Test Loss:  0.0000
+  Round Time: 0.82s
+======================================================================
+
+
+======================================================================
+Round 3/5
+======================================================================
+[Participation] 5/5 clients selected
+
+[Phase 1: Client Training]
+  Completed: 5/5 clients
+
+[Phase 3: Aggregation]
+  ✓ Global model updated
+
+[Phase 4: Evaluation]
+  ✗ Evaluation failed: 'Server' object has no attribute 'get_dataloader'
+
+======================================================================
+Round 3 Summary
+----------------------------------------------------------------------
+  Train Acc:  0.1638
+  Train Loss: 0.0214
+  Test Acc:   0.0000
+  Test Loss:  0.0000
+  Round Time: 0.51s
+======================================================================
+
+
+======================================================================
+Round 4/5
+======================================================================
+[Participation] 5/5 clients selected
+
+[Phase 1: Client Training]
+  Completed: 5/5 clients
+
+[Phase 3: Aggregation]
+  ✓ Global model updated
+
+[Phase 4: Evaluation]
+  ✗ Evaluation failed: 'Server' object has no attribute 'get_dataloader'
+
+======================================================================
+Round 4 Summary
+----------------------------------------------------------------------
+  Train Acc:  0.1794
+  Train Loss: 0.0214
+  Test Acc:   0.0000
+  Test Loss:  0.0000
+  Round Time: 0.96s
+======================================================================
+
+
+======================================================================
+Round 5/5
+======================================================================
+[Participation] 5/5 clients selected
+
+[Phase 1: Client Training]
+  Completed: 5/5 clients
+
+[Phase 3: Aggregation]
+  ✓ Global model updated
+
+[Phase 4: Evaluation]
+  ✗ Evaluation failed: 'Server' object has no attribute 'get_dataloader'
+
+======================================================================
+Round 5 Summary
+----------------------------------------------------------------------
+  Train Acc:  0.1788
+  Train Loss: 0.0214
+  Test Acc:   0.0000
+  Test Loss:  0.0000
+  Round Time: 0.92s
+======================================================================
+
+
+======================================================================
+TRAINING COMPLETE
+======================================================================
+
+✗ Training failed: [Errno 2] No such file or directory: 'logs\\FedOpt\\MNIST_lenet\\non-iid\\MNIST_lenet_non-iid_AdaptiveAttack_SystemAware_5_5_0.01_FedOpt.txt\\training_metrics.json'

@@ -1,0 +1,27 @@
+seed: 4, epochs: 1, algorithm: FedOpt, optimizer: SGD, momentum: 0.9, weight_decay: 0.0005, num_clients: 10, batch_size: 64, learning_rate: 0.01, local_epochs: 5, model: lenet, dataset: MNIST, distribution: non-iid, im_iid_gamma: 0.01, tail_cls_from: 4, dirichlet_alpha: 0.5, cache_partition: False, gpu_idx: [0], num_workers: 0, record_time: False, num_adv: 4, attack: NoAttack, defense: Mean, attack_params: None, defense_params: None, benchmark: False, num_shards: 200, clients_per_round: 1.0, num_training_sample: 60000, num_channels: 1, num_classes: 10, mean: (0.1307,), std: (0.3081,), device: cpu, output: ./logs/FedOpt/MNIST_lenet/non-iid/MNIST_lenet_non-iid_NoAttack_Mean_1_10_0.01_FedOpt.txt
+
+Started on Thu Oct  9 17:21:14 2025
+Generating new dataset split: non-iid
+Number of clients: 10, Type: <class 'int'>
+Performing Dirichlet non-iid partition (alpha=0.5)
+Calling dirichlet_split_noniid with: labels, alpha=0.5, n_clients=10
+Converting client indices to torch tensors...
+Successfully created 10 client partitions
+Validating partitions...
+Total samples distributed: 60000/60000
+Client 0: 7497 samples
+Client 1: 6585 samples
+Client 2: 3503 samples
+Client 3: 5112 samples
+Client 4: 5857 samples
+Client 5: 7536 samples
+Client 6: 3752 samples
+Client 7: 6682 samples
+Client 8: 4192 samples
+Client 9: 9284 samples
+non-iid partition finished successfully.
+Data partitioned
+Clients and server are initialized
+Starting Training...
+Epoch 0  		Train Acc: 0.1566	Train loss: 0.0355	Test Acc: 0.0958	Test loss: 0.0360
+Training finished on Thu Oct  9 17:21:17 2025 using 0 minutes and 3 seconds in total.
