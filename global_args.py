@@ -280,8 +280,6 @@ def single_preprocess(args):
                 device = torch.device("cuda:0")
             else:
                 device = torch.device("cpu")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
     else:
         device = torch.device("cpu")
     print(f"Using device: {device}")
