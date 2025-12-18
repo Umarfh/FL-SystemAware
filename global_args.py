@@ -254,8 +254,13 @@ def single_preprocess(args):
 
     # Set a default epochs if not already present
     if not hasattr(args, 'epochs'):
-        args.epochs = 10 # Default epochs
+        args.epochs = 500 # Default epochs
         print(f"Warning: 'epochs' not found in config, setting to default: {args.epochs}")
+
+    # Set a default num_clients if not already present
+    if not hasattr(args, 'num_clients'):
+        args.num_clients = 200 # Default num_clients
+        print(f"Warning: 'num_clients' not found in config, setting to default: {args.num_clients}")
 
     # preprocess the arguments
     # Priority: CUDA > MPS (MacOS) > CPU
