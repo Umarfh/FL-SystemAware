@@ -25,7 +25,7 @@ def read_args():
     parser.add_argument('-config', '--config', type=str,
                         required=True, help='Path to the YAML configuration file')
     # command line arguments if provided
-    parser.add_argument('-b', '--benchmark', default=False, type=bool,
+    parser.add_argument('-b', '--benchmark', default=False, action='store_true',
                         help='Run all combinations of attacks and defenses')
     parser.add_argument('-e', '--epochs', type=int)
     parser.add_argument('-seed', '--seed', type=int)
@@ -93,8 +93,14 @@ def read_args():
     parser.add_argument(
         '-attack_params', '--attack_params', type=str, help='Override attack parameters')
     
-    import sys
-    print(f"DEBUG: sys.argv before parse_args: {sys.argv}") # Debug print
+    # New arguments for dynamic communication and energy costs
+    parser.add_argument('-alpha', '--alpha_scaling_factor', type=float, default=0.1,
+                        help='Scaling factor alpha for anomaly score in communication cost')
+    parser.add_argument('-beta', '--beta_scaling_factor', type=float, default=1.0,
+                        help='Scaling factor beta for communication cost in energy consumption')
+    parser.add_argument('-e0', '--energy_offset', type=float, default=10.0,
+                        help='Base energy consumption offset E0')
+
     cli_args = parser.parse_args()
     
 
@@ -106,71 +112,146 @@ def read_args():
 
 
 def read_yaml(filename, all_attacks_list, all_aggregators_list):
-    # read configurations from yaml file to args dict object
     with open(filename.strip(), 'r', encoding='utf-8') as file:
-        args_dict = yaml.load(file, Loader=yaml.FullLoader)
-    
-    # If 'dataset' is a dictionary, extract its 'name'
-    if 'dataset' in args_dict and isinstance(args_dict['dataset'], dict):
-        args_dict['dataset'] = args_dict['dataset'].get('name', 'Unknown') # Default to 'Unknown' if name is missing
+        args_dict = yaml.safe_load(file) # Use safe_load for security
 
-    # Set a default early_stopping_patience if not already present in args_dict
-    if 'early_stopping_patience' not in args_dict:
-        args_dict['early_stopping_patience'] = 10 # Default patience
-    
-    # If 'algorithm' is a dictionary, extract its 'name'
-    if 'algorithm' in args_dict and isinstance(args_dict['algorithm'], dict):
-        args_dict['algorithm'] = args_dict['algorithm'].get('name', 'UnknownAlgorithm') # Default to 'UnknownAlgorithm'
-    
-    # If 'model' is a dictionary, extract its 'name'
-    if 'model' in args_dict and isinstance(args_dict['model'], dict):
-        args_dict['model'] = args_dict['model'].get('name', 'UnknownModel') # Default to 'UnknownModel'
-    
-    # If 'defense' is a dictionary, extract its 'name' and 'defense_params'
-    if 'defense' in args_dict:
-        if isinstance(args_dict['defense'], dict):
-            args_dict['defense_params'] = args_dict['defense'].get('defense_params')
-            args_dict['defense'] = args_dict['defense'].get('name', 'UnknownDefense')
-        else: # It's a string
-            args_dict['defense_params'] = None
-    
-    # If 'attack' is a dictionary, extract its 'name' and 'attack_params'
-    if 'attack' in args_dict:
-        if isinstance(args_dict['attack'], dict):
-            args_dict['attack_params'] = args_dict['attack'].get('attack_params')
-            args_dict['attack'] = args_dict['attack'].get('name', 'UnknownAttack')
-        else: # It's a string
-            args_dict['attack_params'] = None
+    # Initialize with default values or top-level values
+    final_args = SimpleNamespace()
 
-    args = SimpleNamespace(**args_dict)
-    
-    # Ensure 'attack' and 'defense' attributes exist, even if None
-    ensure_attr(args, 'attack')
-    ensure_attr(args, 'defense')
+    # Set default for participation_rate early
+    final_args.participation_rate = args_dict.get('participation_rate', 0.6)
 
-    # Map 'dtb' from config to 'distribution' in args
-    if hasattr(args, 'dtb'):
-        args.distribution = args.dtb
+    # Handle top-level simple parameters
+    final_args.epochs = args_dict.get('epochs', 100)
+    final_args.num_clients = args_dict.get('num_clients', 200)
+    final_args.batch_size = args_dict.get('batch_size', 32)
+    final_args.learning_rate = args_dict.get('learning_rate', 0.01)
+    final_args.local_epochs = args_dict.get('local_epochs', 5)
+    final_args.seed = args_dict.get('seed', 4)
+    final_args.momentum = args_dict.get('momentum', 0.9)
+    final_args.weight_decay = args_dict.get('weight_decay', 5.0e-4)
+    final_args.lr_scheduler = args_dict.get('lr_scheduler', 'StepLR')
+    final_args.milestones = args_dict.get('milestones', [2, 4])
+    final_args.gamma = args_dict.get('gamma', 0.95)
+    final_args.im_iid_gamma = args_dict.get('im_iid_gamma', 0.01)
+    final_args.tail_cls_from = args_dict.get('tail_cls_from', 4)
+    final_args.dirichlet_alpha = args_dict.get('dirichlet_alpha', 0.5)
+    final_args.cache_partition = args_dict.get('cache_partition', False)
+    final_args.gpu_idx = args_dict.get('gpu_idx', [0])
+    final_args.num_workers = args_dict.get('num_workers', 0)
+    final_args.record_time = args_dict.get('record_time', False)
+    final_args.num_adv = args_dict.get('num_adv', 0)
+    final_args.num_shards = args_dict.get('num_shards', 200)
+    final_args.early_stopping_patience = args_dict.get('early_stopping_patience', 10)
+    final_args.verbose = args_dict.get('verbose', False) # Top-level verbose
+
+    # Handle top-level complex parameters (dictionaries)
+    # Dataset
+    dataset_config = args_dict.get('dataset', 'MNIST')
+    if isinstance(dataset_config, dict):
+        final_args.dataset = dataset_config.get('name', 'MNIST')
+        final_args.distribution = dataset_config.get('distribution', 'non-iid')
     else:
-        args.distribution = 'iid' # Default if not specified
+        final_args.dataset = dataset_config
+        final_args.distribution = args_dict.get('distribution', 'non-iid') # Fallback to top-level distribution
+
+    # Model
+    model_config = args_dict.get('model', 'lenet')
+    if isinstance(model_config, dict):
+        final_args.model = model_config.get('name', 'lenet')
+    else:
+        final_args.model = model_config
+
+    # Algorithm
+    algorithm_config = args_dict.get('algorithm', 'FedOpt')
+    if isinstance(algorithm_config, dict):
+        final_args.algorithm_params = algorithm_config
+        final_args.algorithm = algorithm_config.get('name', 'FedOpt')
+        final_args.learning_rate = algorithm_config.get('lr', final_args.learning_rate)
+        final_args.local_epochs = algorithm_config.get('local_epochs', final_args.local_epochs)
+    else:
+        final_args.algorithm = algorithm_config
+        final_args.algorithm_params = None
+
+    # Attack
+    attack_config = args_dict.get('attack', 'NoAttack')
+    if isinstance(attack_config, dict):
+        final_args.attack_params = attack_config.get('attack_params')
+        final_args.attack = attack_config.get('name', 'NoAttack')
+    else:
+        final_args.attack = attack_config
+        final_args.attack_params = None
+
+    # Defense
+    defense_config = args_dict.get('defense', 'Mean')
+    if isinstance(defense_config, dict):
+        final_args.defense_params = defense_config.get('defense_params')
+        final_args.defense = defense_config.get('name', 'Mean')
+    else:
+        final_args.defense = defense_config
+        final_args.defense_params = None
+
+    # Process 'experiment' block to override parameters
+    exp_config = args_dict.get('experiment')
+    if isinstance(exp_config, dict):
+        final_args.epochs = exp_config.get('epochs', final_args.epochs)
+        final_args.num_clients = exp_config.get('num_clients', final_args.num_clients)
+        final_args.participation_rate = exp_config.get('partial_participation', final_args.participation_rate)
+        final_args.clients_per_round = int(final_args.num_clients * final_args.participation_rate) # Recalculate
+        final_args.straggler_probability = exp_config.get('straggler_prob', 0.0) # Default if not present
+        final_args.straggler_delay = exp_config.get('straggler_delay', 0) # Default if not present
+        final_args.verbose = exp_config.get('verbose', final_args.verbose)
+        final_args.record_time = exp_config.get('record_time', final_args.record_time)
+
+        attack_exp_config = exp_config.get('attack')
+        if isinstance(attack_exp_config, dict):
+            final_args.attack_params = attack_exp_config.get('attack_params')
+            final_args.attack = attack_exp_config.get('name', 'NoAttack')
+        elif attack_exp_config is not None: # If it's a string, override directly
+            final_args.attack = attack_exp_config
+            final_args.attack_params = None
+        
+        defense_exp_config = exp_config.get('defense')
+        if isinstance(defense_exp_config, dict):
+            final_args.defense_params = defense_exp_config.get('defense_params')
+            final_args.defense = defense_exp_config.get('name', 'Mean')
+        elif defense_exp_config is not None: # If it's a string, override directly
+            final_args.defense = defense_exp_config
+            final_args.defense_params = None
+
+    # Handle logging block
+    logging_config = args_dict.get('logging')
+    if isinstance(logging_config, dict):
+        final_args.communication_coeff = logging_config.get('communication_coeff', 0.01)
+        final_args.energy_coeff = logging_config.get('energy_coeff', 0.01)
+        final_args.verbose = logging_config.get('verbose', final_args.verbose)
+        final_args.alpha_scaling_factor = logging_config.get('alpha_scaling_factor', 0.1)
+        final_args.beta_scaling_factor = logging_config.get('beta_scaling_factor', 1.0)
+        final_args.energy_offset = logging_config.get('energy_offset', 10.0)
+
+    # Ensure clients_per_round is calculated if not explicitly set by experiment block
+    if not hasattr(final_args, 'clients_per_round'):
+        final_args.clients_per_round = max(1, int(final_args.num_clients * final_args.participation_rate))
 
     # Initialize num_adv based on attack configuration
-    if hasattr(args, 'attack_type') and args.attack_type != 'none' and hasattr(args, 'num_malicious'):
-        args.num_adv = args.num_malicious
-    else:
-        args.num_adv = 0 # Default to 0 if no attack or num_malicious not specified
+    # This needs to be done after num_clients is finalized
+    if final_args.attack != 'NoAttack':
+        num_malicious = args_dict.get('num_malicious')
+        if num_malicious is None and final_args.attack_params:
+            num_malicious = final_args.attack_params.get('num_malicious')
 
-    # Map 'lr' from config to 'learning_rate' in args
-    if hasattr(args, 'lr'):
-        args.learning_rate = args.lr
+        if num_malicious is not None:
+            final_args.num_adv = frac_or_int_to_int(num_malicious, final_args.num_clients)
+        else:
+            final_args.num_adv = 0 # Default to 0 if no attack or num_malicious not specified
     else:
-        args.learning_rate = 0.01 # Default if not specified
+        final_args.num_adv = 0 # Default to 0 if no attack
 
     # Add all_attacks and all_aggregators to args for override_args to use
-    args.attacks = all_attacks_list
-    args.defenses = all_aggregators_list
+    final_args.attacks = all_attacks_list
+    final_args.defenses = all_aggregators_list
     
-    return args
+    return final_args
 
 
 def override_args(args, cli_args):
@@ -199,33 +280,67 @@ def override_args(args, cli_args):
     # override parameters
     # if only attack or defense is provided, set their corresponding params to default
     for key, value in vars(cli_args).items():
-        if key in ['config', 'attack', 'defense', 'attack_params', 'defense_params']:
+        if key in ['config', 'attack', 'defense', 'attack_params', 'defense_params', 'benchmark', 'verbose', 'output']:
             continue
         if value is not None:
             setattr(args, key, value)
 
             print(f"Warning: Overriding {key} with {value}")
 
+    # Handle output specifically
+    if cli_args.output is not None:
+        setattr(args, 'output', cli_args.output)
+
+    # Handle verbose specifically: only override if cli_args.verbose is explicitly True
+    if cli_args.verbose:
+        setattr(args, 'verbose', True)
+
     # override attack, defense, attack_params, defense_params
     for param_type in ['attack', 'defense']:
-        if eval(f"cli_args.{param_type}"):  # if not None
-            setattr(args, param_type, eval(f"cli_args.{param_type}"))
+        cli_arg_value = getattr(cli_args, param_type)
+        if cli_arg_value:  # if not None
+            setattr(args, param_type, cli_arg_value)
             # if attack_params or defense_params is provided by cli_args, override the corresponding params
-            if eval(f"cli_args.{param_type}_params"):
-                setattr(args, f'{param_type}_params',
-                        eval(f"cli_args.{param_type}_params"))
+            cli_param_value = getattr(cli_args, f"{param_type}_params")
+            if cli_param_value:
+                # Attempt to parse the string as a dictionary
+                try:
+                    parsed_params = yaml.safe_load(cli_param_value)
+                    if isinstance(parsed_params, dict):
+                        setattr(args, f'{param_type}_params', parsed_params)
+                    else:
+                        print(f"Warning: Could not parse {param_type}_params '{cli_param_value}' as a dictionary. Setting to None.")
+                        setattr(args, f'{param_type}_params', None)
+                except yaml.YAMLError:
+                    print(f"Warning: Could not parse {param_type}_params '{cli_param_value}' as a dictionary. Setting to None.")
+                    setattr(args, f'{param_type}_params', None)
             else:
                 # if not provided, set the params to default
-                for i in eval(f"args.{param_type}s"):
-                    if i[param_type] == eval(f"args.{param_type}"):
-                        setattr(args, f"{param_type}_params",
-                                i.get(f"{param_type}_params"))
-                        break
+                # This part needs to be careful as args.attacks and args.defenses are lists of strings
+                # and not necessarily dictionaries with 'attack' or 'defense' keys.
+                # The original logic here was flawed.
+                # If cli_param_value is None, it means no specific params were passed via CLI.
+                # The default params should already be set by read_yaml or remain None.
+                pass
 
 
 def benchmark_preprocess(args):
-    for attack_i in args.attacks:
-        for defense_j in args.defenses:
+    # This function assumes args.attacks and args.defenses are lists of dictionaries,
+    # but they are currently lists of strings. This needs to be addressed.
+    # For now, I will assume they are lists of strings and create dummy dicts for iteration.
+    
+    # Create temporary lists of attack/defense configurations for benchmarking
+    # This is a placeholder and might need refinement based on actual benchmark requirements
+    temp_attacks = []
+    for att_name in args.attacks:
+        temp_attacks.append({'attack': att_name, 'attack_params': None})
+
+    temp_defenses = []
+    for def_name in args.defenses:
+        temp_defenses.append({'defense': def_name, 'defense_params': None})
+
+    for attack_i in temp_attacks:
+        for defense_j in temp_defenses:
             args.attack, args.attack_params = attack_i['attack'], attack_i.get(
                 'attack_params')
             args.defense, args.defense_params = defense_j['defense'], defense_j.get(
@@ -240,8 +355,8 @@ def benchmark_preprocess(args):
 
 def single_preprocess(args):
     # load dataset configurations, also include learning rate and epochs
-    with open("./configs/dataset_config.yaml", 'r') as file:
-        dataset_config = yaml.load(file, Loader=yaml.FullLoader)
+    with open("./configs/dataset_config.yaml", 'r', encoding='utf-8') as file:
+        dataset_config = yaml.safe_load(file) # Use safe_load
     for key, value in dataset_config[args.dataset].items():
         if key in ['mean', 'std']:
             value = eval(value)
@@ -261,6 +376,11 @@ def single_preprocess(args):
     if not hasattr(args, 'num_clients'):
         args.num_clients = 200 # Default num_clients
         print(f"Warning: 'num_clients' not found in config, setting to default: {args.num_clients}")
+
+    # Set a default clients_per_round if not already present
+    if not hasattr(args, 'clients_per_round'):
+        args.clients_per_round = max(1, int(args.num_clients * 0.1)) # Default to 10% of clients
+        print(f"Warning: 'clients_per_round' not found in config, setting to default: {args.clients_per_round}")
 
     # preprocess the arguments
     # Priority: CUDA > MPS (MacOS) > CPU
@@ -298,13 +418,13 @@ def single_preprocess(args):
     else:
         args.aggregator = "FedAvg" # Default if no defense is specified
 
-    # generate output path if not provided
-    # Ensure output is a directory path, not a file path, for metrics.save
-    output_filename = f'{args.dataset}_{args.model}_{args.distribution}_{args.attack}_{args.defense}_{args.epochs}_{args.num_clients}_{args.learning_rate}_{args.algorithm}'
-    args.output = f'./logs/{args.algorithm}/{args.dataset}_{args.model}/{args.distribution}/{output_filename}'
-
-    # check output path, if exists, skip, otherwise create the directories
-    os.makedirs(args.output, exist_ok=True) # Create the directory
+    # If output path is not provided via CLI, generate a default one
+    if not hasattr(args, 'output') or args.output is None:
+        output_dirname = f'{args.dataset}_{args.model}_{args.distribution}_{args.attack}_{args.defense}_{args.epochs}_{args.num_clients}_{args.learning_rate}_{args.algorithm}'
+        args.output = f'./logs/{args.algorithm}/{args.dataset}_{args.model}/{args.distribution}/{output_dirname}'
+    
+    # Ensure the output directory exists
+    os.makedirs(args.output, exist_ok=True)
     return args
 
 

@@ -3,6 +3,7 @@ import random
 import torch.nn as nn # Added for criterion
 import torch.optim as optim # Added for optimized client training
 import copy # Added for deepcopy
+import logging # Import logging module
 from fl.algorithms import get_algorithm_handler
 from fl.models import get_model
 from fl.models.model_utils import vec2model
@@ -36,29 +37,37 @@ class Client(Worker):
         print(f"DEBUG: Client {self.client_id} model type: {type(self.model)}")
         print(f"DEBUG: Client {self.client_id} model total parameters: {sum(p.numel() for p in self.model.parameters())}")
         self.global_weights_vec = None # Initialize global_weights_vec to None, will be set by load_global_model
+        self.initial_global_weights_vec = None # Store global weights at start of round for diff calculation
 
         # Remove optimizer and scheduler initialization from __init__
         # These will be handled within the new set_algorithm method
         self.optimizer = None
         self.lr_scheduler = None
 
+        # Initialize logger for the client
+        self.logger = logging.getLogger(f"Client_{self.client_id}")
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(f"[Client {self.client_id}] %(levelname)s: %(message)s")
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+            self.logger.setLevel(logging.DEBUG if getattr(args_val, 'verbose', False) else logging.INFO)
+
         # -------------------------
         # Ensure a default loss is set for classification
         if not hasattr(self, 'criterion_fn') or self.criterion_fn is None:
             # Use cross-entropy for classification by default
             self.criterion_fn = torch.nn.CrossEntropyLoss()
-            self.logger = getattr(self, 'logger', None)
-            if self.logger:
-                self.logger.info(f"[Client {self.client_id}] criterion set to CrossEntropyLoss")
+            self.logger.info(f"Criterion set to CrossEntropyLoss")
         # -------------------------
 
-        print(f"[Client {self.client_id}] args.algorithm: {args_val.algorithm}")
-        print(f"[Client {self.client_id}] args.local_epochs: {args_val.local_epochs}")
+        self.logger.info(f"args.algorithm: {args_val.algorithm}")
+        self.logger.info(f"args.local_epochs: {args_val.local_epochs}")
 
         self.train_loader = self.get_dataloader(self.train_dataset, train_flag=True)
         self.record_time(getattr(args_val, "record_time", False))
         self.set_algorithm(args_val.algorithm) # Initialize the algorithm and local_epochs
-        print(f"[Client {self.client_id}] self.local_epochs after set_algorithm: {self.local_epochs}")
+        self.logger.info(f"self.local_epochs after set_algorithm: {self.local_epochs}")
 
     def record_time(self, record_time):
         if record_time:
@@ -113,6 +122,7 @@ class Client(Worker):
 
     def load_global_model(self, global_weights_vec):
         self.global_weights_vec = global_weights_vec
+        self.initial_global_weights_vec = global_weights_vec.copy() # Store for update calculation
         vec2model(self.global_weights_vec, self.model)
 
     def local_training(self, model=None, train_loader=None, optimizer=None, criterion_fn=None, local_epochs=None):
@@ -134,16 +144,16 @@ class Client(Worker):
         is_generator = not isinstance(train_loader, torch.utils.data.DataLoader)
 
         for epoch in range(local_epochs):
-            print(f"DEBUG: Client {self.client_id} - Epoch {epoch+1}/{local_epochs} starting...")
+            self.logger.debug(f"Client {self.client_id} - Epoch {epoch+1}/{local_epochs} starting...")
             running_loss = 0.0
             running_correct = 0
             running_total = 0
 
             loader = train_loader() if is_generator and callable(train_loader) else train_loader
-            # print(f"DEBUG: Client {self.client_id} - DataLoader created for epoch {epoch+1}. Length: {len(loader.dataset) if hasattr(loader, 'dataset') else 'N/A'}")
+            self.logger.debug(f"Client {self.client_id} - DataLoader created for epoch {epoch+1}. Length: {len(loader.dataset) if hasattr(loader, 'dataset') else 'N/A'}")
 
             for i, batch in enumerate(loader):
-                # print(f"DEBUG: Client {self.client_id} - Epoch {epoch+1}, Batch {i+1} starting...")
+                self.logger.debug(f"Client {self.client_id} - Epoch {epoch+1}, Batch {i+1} starting...")
                 # batch can be (inputs, targets) or more
                 inputs, targets = batch[0], batch[1]
                 inputs = inputs.to(self.args.device)
@@ -168,6 +178,7 @@ class Client(Worker):
             epoch_acc = running_correct / max(1, running_total)
             epoch_losses.append(epoch_loss)
             epoch_accs.append(epoch_acc)
+            self.logger.debug(f"Client {self.client_id} - Epoch {epoch+1} finished. Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.4f}")
 
             # optional lr schedule step if present
             try:
@@ -178,22 +189,34 @@ class Client(Worker):
 
         self.avg_local_acc = sum(epoch_accs) / len(epoch_accs) if epoch_accs else 0.0
         self.avg_local_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+        self.logger.debug(f"Client {self.client_id} - Local training complete. Avg Loss: {self.avg_local_loss:.4f}, Avg Accuracy: {self.avg_local_acc:.4f}")
 
         # Perform client-level test after local training
         if self.test_dataset:
             self.client_test_accuracy, _ = self.client_test(model, self.test_dataset)
+            self.logger.debug(f"Client {self.client_id} - Client-side test accuracy: {self.client_test_accuracy:.4f}")
 
         return self.avg_local_acc, self.avg_local_loss
 
     def fetch_updates(self, benign_flag=False):
-        # Perform local training first
-        self.local_training(model=self.model, train_loader=self.train_loader, 
-                            optimizer=self.optimizer, criterion_fn=self.criterion_fn, 
-                            local_epochs=self.local_epochs)
-        
-        # Then get the update based on the trained model
-        self.update = self.algorithm.get_local_update(global_weights_vec=self.global_weights_vec)
+        # Get the update based on the trained model (local_training is called in run_experiment.py)
+        self.update = self.algorithm.get_local_update(
+            global_weights_vec=self.global_weights_vec,
+            initial_global_weights_vec=self.initial_global_weights_vec
+        )
         self.global_epoch += 1
+
+        # Calculate communication cost (size of the update in bytes)
+        if self.update is not None:
+            # Assuming self.update is a tensor or a list of tensors
+            if isinstance(self.update, torch.Tensor):
+                self.communication_cost = self.update.numel() * self.update.element_size() # Bytes
+            elif isinstance(self.update, list):
+                self.communication_cost = sum(u.numel() * u.element_size() for u in self.update if isinstance(u, torch.Tensor))
+            else:
+                self.communication_cost = 0 # Or handle other types if necessary
+        else:
+            self.communication_cost = 0
 
     def client_test(self, model=None, test_dataset=None):
         model = self.new_if_given(model, self.model)

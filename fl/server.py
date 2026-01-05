@@ -81,7 +81,7 @@ class Server:
         self.previous_weights_vec = None
 
         # updates storage for current round
-        self.updates: List[np.ndarray] = []
+        self.updates: List[np.ndarray] = [] # Stores update vectors (diffs)
         self.update_metadata: List[Dict[str, Any]] = []
         self.participating_clients: List[int] = []
 
@@ -109,6 +109,11 @@ class Server:
         self.max_update_norm = float(getattr(self.args, "max_update_norm", 1e6))
         self.checkpoint_enabled = getattr(self.args, "save_checkpoints", False)
         self.checkpoint_interval = getattr(self.args, "checkpoint_interval", 10)
+
+        # New attributes to store defense pipeline outputs for the current round
+        self.last_anomaly_scores: List[float] = []
+        self.last_reputation_scores: List[float] = []
+        self.last_filter_stats: Dict[str, int] = {}
         
         # Initialize global model properly
         from fl.models.model_utils import initialize_model_properly
@@ -139,25 +144,24 @@ class Server:
 
         for client in clients_to_collect:
             # safety: client must have .update produced by client.fetch_updates()
-            if not hasattr(client, "model") or client.model is None: # Check for client model directly
+            if not hasattr(client, "update") or client.update is None: # Check for client update vector
                 skipped += 1
                 continue
 
             try:
-                # Store the client's model (or its state_dict) directly
-                client_model_state_dict = client.model.state_dict()
+                # Client.update is already the difference vector
+                update_vec = client.update
                 
-                # Estimate size in bytes (vectorize for size estimation)
-                arr = state2vec(client_model_state_dict)
-                num_bytes = arr.size * 4  # float32 assumption
+                # Estimate size in bytes from the update vector
+                num_bytes = update_vec.size * 4  # float32 assumption
 
-                norm = float(np.linalg.norm(arr))
-                if np.isnan(arr).any() or np.isinf(arr).any():
-                    self.logger.warning(f"Client {getattr(client, 'client_id', 'N/A')}: Model parameters contain NaN/Inf -> skipped")
+                norm = float(np.linalg.norm(update_vec))
+                if np.isnan(update_vec).any() or np.isinf(update_vec).any():
+                    self.logger.warning(f"Client {getattr(client, 'client_id', 'N/A')}: Update vector contains NaN/Inf -> skipped")
                     skipped += 1
                     continue
                 if norm > self.max_update_norm:
-                    self.logger.warning(f"Client {getattr(client, 'client_id', 'N/A')}: Model norm too large ({norm:.2e}) -> skipped")
+                    self.logger.warning(f"Client {getattr(client, 'client_id', 'N/A')}: Update norm too large ({norm:.2e}) -> skipped")
                     skipped += 1
                     continue
 
@@ -173,7 +177,7 @@ class Server:
                     round_client_accuracies[client.client_id] = client.client_test_accuracy
                     self.metrics.client_accuracies[client.client_id].append(client.client_test_accuracy)
 
-                self.updates.append(client_model_state_dict) # Store state_dict
+                self.updates.append(update_vec) # Store the update vector (diff)
                 self.update_metadata.append(meta)
                 self.participating_clients.append(meta['client_id'])
                 self.client_data_sizes.append(len(client.train_loader.dataset)) # Store client data size
@@ -225,99 +229,99 @@ class Server:
         start = time.time()
         self.previous_weights_vec = self.global_weights_vec.copy() if self.global_weights_vec is not None else None
 
-        # Apply defense pipeline if present; expected to return list of state_dicts
-        sanitized_state_dicts = self.updates
+        # Apply defense pipeline if present; expected to return list of update vectors
+        sanitized_updates = self.updates
         if self.defense_pipeline:
             try:
-                # The defense pipeline expects numpy vectors, so convert state_dicts to vectors for sanitization
-                updates_as_vectors = [state2vec(sd) for sd in self.updates]
-                sanitized_vectors = self.defense_pipeline.sanitize_updates(updates_as_vectors, client_ids=self.participating_clients, global_model=self.global_weights_vec)
+                # The defense pipeline expects numpy vectors, which self.updates now contains
+                sanitized_updates, anomaly_scores, reputations, filter_stats = self.defense_pipeline.sanitize_updates(
+                    self.updates, client_ids=self.participating_clients, global_model=self.global_weights_vec
+                )
                 
-                # Filter Nones and convert back to state_dicts
-                sanitized_state_dicts = []
-                for vec in sanitized_vectors:
-                    if vec is not None:
-                        temp_model = get_model(self.args)
-                        vec2model(vec, temp_model)
-                        sanitized_state_dicts.append(temp_model.state_dict())
+                # Store the defense pipeline outputs
+                self.last_anomaly_scores = anomaly_scores
+                self.last_reputation_scores = reputations
+                self.last_filter_stats = filter_stats
+
+                # Filter Nones (rejected updates)
+                sanitized_updates = [vec for vec in sanitized_updates if vec is not None]
                 
-                rejected = len(self.updates) - len(sanitized_state_dicts)
+                rejected = len(self.updates) - len(sanitized_updates)
                 if rejected > 0:
                     self.metrics.total_updates_rejected += rejected
                     self.logger.info(f"  Defense rejected: {rejected}/{len(self.updates)} updates")
-                if not sanitized_state_dicts:
+                if not sanitized_updates:
                     self.logger.warning("All updates rejected by defense; falling back to raw updates")
-                    sanitized_state_dicts = self.updates
+                    sanitized_updates = self.updates # Fallback to original updates if all are rejected
             except Exception as e:
                 self.logger.warning(f"Defense pipeline failed: {e}")
-                sanitized_state_dicts = self.updates
+                sanitized_updates = self.updates
+                # Clear defense pipeline outputs if an error occurred
+                self.last_anomaly_scores = []
+                self.last_reputation_scores = []
+                self.last_filter_stats = {}
 
         # choose aggregator
-        aggregated_model = None
+        aggregated_update_vec = None
         try:
             if self.aggregation_method in ("FedAvg", "FedAvgWeight", "SystemAware", None): # Added SystemAware
-                # Pass global_model (PyTorch object), client state_dicts, and client data sizes
-                aggregated_model = self._fedavg_aggregate(self.global_model, sanitized_state_dicts, self.client_data_sizes)
+                # Pass update vectors and client data sizes
+                aggregated_update_vec = self._fedavg_aggregate(sanitized_updates, self.client_data_sizes)
             elif self.aggregation_method == "Median":
-                # Convert state_dicts to vectors for median aggregation
-                updates_as_vectors = [state2vec(sd) for sd in sanitized_state_dicts]
-                agg_vec = self._median(updates_as_vectors)
-                aggregated_model = get_model(self.args)
-                vec2model(agg_vec, aggregated_model)
+                aggregated_update_vec = self._median(sanitized_updates)
             elif self.aggregation_method == "TrimmedMean":
-                # Convert state_dicts to vectors for trimmed mean aggregation
-                updates_as_vectors = [state2vec(sd) for sd in sanitized_state_dicts]
-                agg_vec = self._trimmed_mean(updates_as_vectors)
-                aggregated_model = get_model(self.args)
-                vec2model(agg_vec, aggregated_model)
+                aggregated_update_vec = self._trimmed_mean(sanitized_updates)
             else:
                 try:
                     # Attempt to get aggregator from registry
                     aggregator_class = get_aggregator(self.aggregation_method)
                     aggregator_instance = aggregator_class(self.args) # Assuming aggregator takes args
-                    # Aggregators from registry typically expect vectors
-                    updates_as_vectors = [state2vec(sd) for sd in sanitized_state_dicts]
-                    agg_vec = aggregator_instance.aggregate(updates_as_vectors)
-                    aggregated_model = get_model(self.args)
-                    vec2model(agg_vec, aggregated_model)
+                    aggregated_update_vec = aggregator_instance.aggregate(sanitized_updates)
                 except KeyError:
                     self.logger.warning(f"Unknown aggregator '{self.aggregation_method}', using FedAvg")
-                    aggregated_model = self._fedavg_aggregate(self.global_model, sanitized_state_dicts, self.client_data_sizes) # Fallback to improved FedAvg
+                    aggregated_update_vec = self._fedavg_aggregate(sanitized_updates, self.client_data_sizes) # Fallback to improved FedAvg
         except Exception as e:
             self.logger.error(f"Aggregation failed: {e}")
             raise
 
         agg_time = time.time() - start
         self.metrics.aggregation_times.append(agg_time)
-        self.metrics.total_updates_accepted += len(sanitized_state_dicts)
+        self.metrics.total_updates_accepted += len(sanitized_updates)
 
-        # set new global_weights_vec from aggregated_model
-        self.global_weights_vec = model2vec(aggregated_model)
-        self._log_aggregation_summary([state2vec(sd) for sd in sanitized_state_dicts], agg_time) # Log with vectors
+        # Apply the aggregated update to the global model
+        if aggregated_update_vec is not None and self.global_weights_vec is not None:
+            self.global_weights_vec = self.global_weights_vec + aggregated_update_vec
+        elif aggregated_update_vec is not None: # If global_weights_vec was None initially
+            self.global_weights_vec = aggregated_update_vec
+        else:
+            self.logger.warning("Aggregated update is None, global model not updated.")
+
+        self._log_aggregation_summary(sanitized_updates, agg_time) # Log with vectors
 
         # log energy/communication for this round
-        self._log_energy_comm()
+        # self._log_energy_comm() # Commented out as metrics are now calculated in main.py
 
-    def _fedavg_aggregate(self, global_model, client_state_dicts, client_weights):
+    def _fedavg_aggregate(self, client_update_vectors: List[np.ndarray], client_weights: List[int]) -> np.ndarray:
         """
-        Weighted FedAvg aggregation, returns a PyTorch model.
+        Weighted FedAvg aggregation of update vectors.
         client_weights: number of samples per client
+        Returns: aggregated update vector
         """
-        global_dict = global_model.state_dict()
-        
-        # Initialize with zeros
-        for key in global_dict.keys():
-            global_dict[key] = torch.zeros_like(global_dict[key], dtype=torch.float32)
-        
-        # Weighted sum
+        if not client_update_vectors:
+            return np.zeros_like(self.global_weights_vec) # Return zero vector if no updates
+
         total_weight = sum(client_weights)
+        if total_weight == 0:
+            return np.zeros_like(self.global_weights_vec)
+
+        # Initialize aggregated update with zeros
+        aggregated_update = np.zeros_like(client_update_vectors[0], dtype=np.float32)
         
-        for client_state, weight in zip(client_state_dicts, client_weights):
-            for key in global_dict.keys():
-                global_dict[key] += (client_state[key].float() * weight / total_weight)
+        # Weighted sum of update vectors
+        for update_vec, weight in zip(client_update_vectors, client_weights):
+            aggregated_update += (update_vec * weight / total_weight)
         
-        global_model.load_state_dict(global_dict)
-        return global_model
+        return aggregated_update
 
     def _fedavg(self, updates: List[np.ndarray]) -> np.ndarray:
         # This is the old _fedavg, kept for compatibility if needed by other aggregators

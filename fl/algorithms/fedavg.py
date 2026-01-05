@@ -12,8 +12,10 @@ class FedAvg(AlgorithmBase):
     def init_local_epochs(self):
         return self.args.local_epochs
 
-    def get_local_update(self, **kwargs):
-        update = model2vec(self.model)
+    def get_local_update(self, global_weights_vec, initial_global_weights_vec, **kwargs):
+        # Calculate the difference between the locally trained model and the initial global model
+        local_model_vec = model2vec(self.model)
+        update = local_model_vec - initial_global_weights_vec
         return update
 
     # for server

@@ -47,18 +47,28 @@ def vec2model(vector, model, plus=False, ignorebn=False):
         if ignorebn:
             if any(substring in key for substring in ['running_mean', 'running_var', 'num_batches_tracked']):
                 continue
+        
+        if key not in model_state_dict:
+            print(f"WARNING: Key '{key}' from vector not found in model's state_dict. Skipping.")
+            continue
+
         numel = value.numel()
         
         # Debug print before reshape
         print(f"DEBUG: Processing key: {key}, expected shape: {value.shape}, numel: {numel}, curr_idx: {curr_idx}")
         
+        # Ensure the vector has enough elements for the current parameter
+        if curr_idx + numel > len(vector):
+            print(f"ERROR: Vector has insufficient elements for key '{key}'. Expected {numel}, but only {len(vector) - curr_idx} remaining.")
+            break # Exit loop if vector is exhausted
+
         param_tensor = torch.from_numpy(
             vector[curr_idx:curr_idx + numel].reshape(value.shape)).to(device=device, dtype=dtype)
 
         if plus:
-            value.copy_(value + param_tensor)  # in-place addition
+            model_state_dict[key].copy_(value + param_tensor)  # in-place addition
         else:
-            value.copy_(param_tensor)  # in-place assignment
+            model_state_dict[key].copy_(param_tensor)  # in-place assignment
         curr_idx += numel
 
     # Note that the below method are only suitable for CNN without batch normalization layer

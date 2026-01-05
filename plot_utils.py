@@ -37,20 +37,39 @@ def parse_logs(filename):
 
     epochs, accs, losses, asrs, asr_losses = [], [], [], [], []
     round_times, active_clients, stragglers, dropouts = [], [], [], []
+    communication_costs, energy_consumptions = [], []
     
+    # New lists for defense metrics
+    reputation_scores = []
+    
+    # New lists for direct metrics from run_experiment.py
+    anomaly_scores_per_round = []
+    rejection_ratios_per_round = []
+
     for round_data in content.get('rounds', []):
         epochs.append(round_data.get('round'))
         accs.append(round_data.get('test_acc'))
         losses.append(round_data.get('test_loss'))
-        asrs.append(round_data.get('asr')) # Assuming 'asr' might be present in some logs
-        asr_losses.append(round_data.get('asr_loss')) # Assuming 'asr_loss' might be present
+        asrs.append(round_data.get('asr'))
+        asr_losses.append(round_data.get('asr_loss'))
 
         round_times.append(round_data.get('round_time'))
         active_clients.append(round_data.get('active_clients'))
         stragglers.append(round_data.get('stragglers'))
         dropouts.append(round_data.get('dropouts'))
+        communication_costs.append(round_data.get('communication_cost_kb'))
+        energy_consumptions.append(round_data.get('energy_consumption_mj'))
 
-    return epochs, accs, losses, asrs, asr_losses, round_times, active_clients, stragglers, dropouts
+        # Extract defense metrics
+        reputation_scores.append(round_data.get('reputation_score')) # Assuming reputation_score is logged
+
+        # Extract direct metrics
+        anomaly_scores_per_round.append(round_data.get('anomaly_score'))
+        rejection_ratios_per_round.append(round_data.get('rejection_ratio'))
+
+    return epochs, accs, losses, asrs, asr_losses, round_times, active_clients, stragglers, dropouts, \
+           communication_costs, energy_consumptions, anomaly_scores_per_round, \
+           reputation_scores, rejection_ratios_per_round
 
 
 def plot_accuracy(epochs, accs, output_path):
@@ -293,24 +312,91 @@ def plot_energy_consumption(epochs, energy_consumptions, output_path):
     plt.close()
 
 
+def plot_anomaly_and_reputation_scores_vs_round(epochs, anomaly_scores, reputation_scores, output_path):
+    setup_paper_style()
+    plt.figure(figsize=(12, 7))
+
+    if anomaly_scores:
+        plt.plot(epochs, anomaly_scores, label='Anomaly Score', marker='o', linestyle='-', color='blue')
+    if reputation_scores:
+        plt.plot(epochs, reputation_scores, label='Reputation Score', marker='s', linestyle='-', color='green')
+
+    plt.xlabel('Round Number')
+    plt.ylabel('Score / Value')
+    plt.title('Anomaly & Reputation Scores vs. Round Number')
+    plt.legend()
+    plt.grid(True)
+
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_dir / "anomaly_reputation_vs_round_plot.pdf")
+    plt.close()
+
+
+def plot_rejection_ratio_vs_round(epochs, rejection_ratios, output_path):
+    setup_paper_style()
+    plt.figure(figsize=(10, 6))
+
+    if rejection_ratios:
+        plt.plot(epochs, rejection_ratios, label='Rejection Ratio', marker='o', color='red')
+
+    plt.xlabel('Round Number')
+    plt.ylabel('Rejection Ratio')
+    plt.title('Rejection Ratio vs. Round Number')
+    plt.ylim(0, 1) # Ratio is between 0 and 1
+    plt.legend()
+    plt.grid(True)
+
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_dir / "rejection_ratio_vs_round_plot.pdf")
+    plt.close()
+
+
+def plot_active_clients(epochs, active_clients, output_path):
+    setup_paper_style()
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, active_clients, label='Active Clients', marker='o', color='blue')
+
+    plt.xlabel('Round Number')
+    plt.ylabel('Number of Active Clients')
+    plt.title('Active Clients per Round')
+    plt.legend()
+    plt.grid(True)
+    
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    plt.savefig(output_dir / "active_clients_plot.pdf")
+    plt.close()
+
+
 if __name__ == "__main__":
-    log_file = "./logs/FedOpt/MNIST_lenet/iid/MNIST_lenet_iid_AdaptiveAttack_SystemAware_100_50_0.01_FedOpt/experiment_metrics.json"
+    log_file = "./logs/FedOpt/MNIST_lenet/non-iid/MNIST_lenet_non-iid_NoAttack_SystemAware_100_150_0.01_FedOpt/training_metrics.json"
     output_dir = "./plots/" # Changed output directory to a new 'plots' folder
 
     # Example usage:
-    epochs, accs, losses, asrs, asr_losses, round_times, active_clients, stragglers, dropouts = parse_logs(log_file)
+    epochs, accs, losses, asrs, asr_losses, round_times, active_clients, stragglers, dropouts, \
+    communication_costs, energy_consumptions, anomaly_scores_per_round, \
+    reputation_scores, rejection_ratios_per_round = parse_logs(log_file)
+    
     plot_accuracy(epochs, accs, output_dir)
     plot_loss(epochs, losses, output_dir)
     plot_asr(epochs, asrs, output_dir)
     plot_round_time(epochs, round_times, output_dir)
     plot_rejected_accepted_updates(epochs, active_clients, dropouts, output_dir)
+    plot_communication_cost(epochs, communication_costs, output_dir)
+    plot_energy_consumption(epochs, energy_consumptions, output_dir)
+    
+    # Plot new defense metrics
+    plot_anomaly_and_reputation_scores_vs_round(epochs, anomaly_scores_per_round, reputation_scores, output_dir)
+    plot_rejection_ratio_vs_round(epochs, rejection_ratios_per_round, output_dir)
+    plot_active_clients(epochs, active_clients, output_dir) # New plot for active clients
 
     # Placeholder for data not found in experiment_metrics.json
     # Anomaly Scores Distribution: Requires per-client anomaly scores per round.
-    # Communication Cost: Requires total data transmitted per round.
-    # Energy Consumption: Requires energy consumption per round.
-    print("Note: Anomaly Scores Distribution, Communication Cost, and Energy Consumption plots require additional data not present in the current experiment_metrics.json.")
-    print("Please ensure these metrics are logged in the JSON file for these plots to be generated.")
+    print("Note: Anomaly Scores Distribution plot requires additional data not present in the current experiment_metrics.json.")
+    print("Please ensure these metrics are logged in the JSON file for this plot to be generated.")
 
     # Example for comparative accuracy (this part would typically be run separately or with a different main logic)
     comparative_log_files = {

@@ -109,7 +109,7 @@ class DefensePipeline:
     
     def sanitize_updates(self, updates: List[np.ndarray], 
                         client_ids: Optional[List[int]] = None,
-                        global_model: Optional[np.ndarray] = None) -> List[Optional[np.ndarray]]:
+                        global_model: Optional[np.ndarray] = None) -> Tuple[List[Optional[np.ndarray]], List[float], List[float], Dict[str, int]]:
         """
         Sanitize client updates through the defense pipeline.
         
@@ -166,7 +166,7 @@ class DefensePipeline:
         if self.adaptive_threshold:
             self._adjust_thresholds(filter_stats)
         
-        return sanitized_updates
+        return sanitized_updates, anomaly_scores, reputations, filter_stats
     
     def aggregate_with_trust(self, sanitized_updates: List[Optional[np.ndarray]],
                            client_ids: List[int],

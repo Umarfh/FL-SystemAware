@@ -1,7 +1,7 @@
 # This file serves as the configurations for the benchmarking experiments, including the basic configuration and the parameters for all attacks and defenses that are going to be tested. You can copy this file and modify it to run your own single attack and defense experiments.
 seed: 4 # seed for reproducibility
 # basic configuration
-epochs: 500 # global epochs (from ServerConfig.NUM_ROUNDS)
+epochs: 100 # global epochs (from ServerConfig.NUM_ROUNDS)
 algorithm: FedOpt # algorithm, FedSGD, FedAvg, FedOpt
 optimizer: SGD # optimizer for training
 momentum: 0.9
@@ -221,24 +221,6 @@ defenses:
       defense_params:
           gamma: 1.2e-5
 
-# =========================================================
-# ✅ Simulation Parameters for System-Aware FL
-# =========================================================
-partial_participation: True     # Enables partial client participation
-participation_rate: 0.6         # Only 60% of clients per round will participate
-
-simulate_stragglers: True       # Enables straggler delay simulation
-straggler_probability: 0.3      # 30% chance a client becomes a straggler
-straggler_delay: 2              # Stragglers report updates after 2 extra rounds
-
-simulate_heterogeneity: True    # Enables per-client heterogeneity
-hetero_lr_min: 0.005            # Minimum learning rate for slow devices
-hetero_lr_max: 0.05             # Maximum learning rate for fast devices
-
-# Optional energy & comm metrics
-energy_coeff: 0.05              # Energy cost coefficient (mJ/KB)
-
-
 # FedOpt MNIST configuration for SystemAware FL
 dataset:
   name: MNIST
@@ -275,8 +257,8 @@ defense:
     reputation_threshold: 0.8
 
 experiment:
-  epochs: 500
-  num_clients: 200
+  epochs: 100
+  num_clients: 150
   partial_participation: 0.6
   straggler_prob: 0.3
   straggler_delay: 2.0
@@ -287,23 +269,9 @@ attack:
   name: NoAttack
 
 logging:
-  communication_coeff: 0.05
-  energy_coeff: 0.05
+  communication_coeff: 0.01
+  energy_coeff: 0.01
   verbose: True
-
-# participation + stragglers
-partial_participation: True
-participation_rate: 0.6
-
-simulate_stragglers: True
-straggler_probability: 0.3
-straggler_delay: 2.0
-straggler_timeout: 10.0
-
-# heterogeneity
-simulate_heterogeneity: True
-hetero_lr_min: 0.005
-hetero_lr_max: 0.05
-
-# comm / energy
-comm_coefficient: 0.05   # mJ per KB (or energy_coeff)
+  alpha_scaling_factor: 0.1 # Default value, can be overridden via CLI
+  beta_scaling_factor: 1.0  # Default value, can be overridden via CLI
+  energy_offset: 10.0       # Default value, can be overridden via CLI

@@ -74,8 +74,12 @@ def evaluate(server, test_dataset, args, global_epoch):
     correct = 0
     total = 0
     test_loss = 0.0
+    
+    server.logger.debug(f"[Coordinator] Evaluating global model on {len(test_dataset)} samples.")
+    server.logger.debug(f"[Coordinator] Test loader has {len(test_loader)} batches.")
+
     with torch.no_grad():
-        for data, target in test_loader:
+        for i, (data, target) in enumerate(test_loader):
             data = data.to(device)
             target = target.to(device)
             out = model(data)
@@ -84,6 +88,7 @@ def evaluate(server, test_dataset, args, global_epoch):
             preds = out.argmax(dim=1)
             correct += int((preds == target).sum().item())
             total += target.size(0)
+            server.logger.debug(f"[Coordinator] Batch {i+1}: Loss={loss.item():.4f}, Correct={int((preds == target).sum().item())}/{target.size(0)}")
 
     test_loss = test_loss / (total + 1e-9)
     test_acc = correct / (total + 1e-9)
@@ -98,6 +103,7 @@ def evaluate(server, test_dataset, args, global_epoch):
     # log via server.logger if present
     try:
         server.logger.info(f"[Evaluation] Accuracy: {test_acc*100:.2f}% | Avg Loss: {test_loss:.4f}")
+        server.logger.debug(f"[Coordinator] Final evaluation: Total correct={correct}, Total samples={total}")
     except Exception:
         pass
 

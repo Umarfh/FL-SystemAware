@@ -1,109 +1,125 @@
 import re
 import csv
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 import numpy as np
 import sys
 import os
+import json
 
 # Add the parent directory to sys.path to import plot_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plot_utils import setup_paper_style
 
-LOG_PATH = "logs/fl_training.log"
+LOG_PATH = "logs/FedOpt/MNIST_lenet/iid/MNIST_lenet_iid_NoAttack_SystemAware_50_50_0.005_FedOpt/training_metrics.json"
 PLOTS_DIR = "plots/" # Define a dedicated directory for plots
 CSV_PATH = Path(PLOTS_DIR) / "metrics.csv" # Save CSV in the plots directory
 
 def parse_log(path):
     metrics = []
-    current = {}
+    path_obj = Path(path)
 
-    expect_anomaly_mean = False
-    expect_reputation_mean = False
-
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-
-            # --- New round (Metrics block) ---
-            m_round = re.search(r"\[Metrics\]\s*Round\s+(\d+):", line)
-            if m_round:
-                # store previous round if exists
-                if "round" in current:
+    if path_obj.suffix == ".json":
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if "rounds" in data: # Handle experiment_metrics.json structure
+                for round_data in data["rounds"]:
+                    current = {"round": round_data["round"] + 1} # Adjust round to be 1-indexed
+                    current["train_acc"] = round_data.get("train_acc")
+                    current["train_loss"] = round_data.get("train_loss")
+                    current["val_acc"] = round_data.get("test_acc") * 100 if round_data.get("test_acc") is not None else None # Convert to percentage
+                    current["val_loss"] = round_data.get("test_loss")
+                    current["comm_kb"] = round_data.get("communication_cost_kb")
+                    current["energy_mj"] = round_data.get("energy_consumption_mj")
+                    current["anomaly_score"] = round_data.get("anomaly_score")
+                    current["rejection_ratio"] = round_data.get("rejection_ratio")
+                    current["reputation_score"] = round_data.get("reputation_score") # Assuming this is now logged
+                    current["active_clients"] = round_data.get("active_clients")
                     metrics.append(current)
-                    current = {}
+            else: # Handle training_metrics.json structure (top-level arrays) - this structure is likely deprecated
+                comm_kb_per_round = data.get("comm_kb_per_round", [])
+                energy_per_round = data.get("energy_per_round", [])
+                test_accuracies = data.get("test_accuracies", [])
+                test_losses = data.get("test_losses", [])
+                train_accuracies = data.get("train_accuracies", [])
+                train_losses = data.get("train_losses", [])
 
-                current["round"] = int(m_round.group(1))
-                continue
+                num_rounds = max(len(comm_kb_per_round), len(energy_per_round), len(test_accuracies))
 
-            # --- Global evaluation (accuracy + loss) ---
-            # Example: [Server] [Evaluation] Accuracy: 97.81% | Avg Loss: 0.1339
-            m_eval = re.search(
-                r"Accuracy:\s*([\d.]+)%\s*\|\s*Avg Loss:\s*([\d.]+)", line
-            )
-            if m_eval and "round" in current:
-                current["val_acc"] = float(m_eval.group(1))
-                current["val_loss"] = float(m_eval.group(2))
-                continue
+                for i in range(num_rounds):
+                    current = {"round": i + 1}
+                    if i < len(comm_kb_per_round):
+                        current["comm_kb"] = comm_kb_per_round[i]
+                    if i < len(energy_per_round):
+                        current["energy_mj"] = energy_per_round[i]
+                    if i < len(test_accuracies):
+                        current["val_acc"] = test_accuracies[i] * 100 # Convert to percentage
+                    if i < len(test_losses):
+                        current["val_loss"] = test_losses[i]
+                    if i < len(train_accuracies):
+                        current["train_acc"] = train_accuracies[i]
+                    if i < len(train_losses):
+                        current["train_loss"] = train_losses[i]
+                    metrics.append(current)
+    else: # Assume it's a .txt log file
+        current = {}
+        # No longer expecting anomaly_mean or reputation_mean from .txt logs as they are in JSON
+        # The .txt log parsing is less robust and should ideally be replaced by JSON parsing.
 
-            # --- Communication ---
-            # Example: [Server]   Communication: 5206.17 KB
-            m_comm = re.search(r"Communication:\s*([\d.]+)\s*KB", line)
-            if m_comm and "round" in current:
-                current["comm_kb"] = float(m_comm.group(1))
-                continue
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
 
-            # --- Energy ---
-            # Example: [Server]   Energy:        260.309 mJ (coeff=0.05)
-            m_energy = re.search(r"Energy:\s*([\d.]+)\s*mJ", line)
-            if m_energy and "round" in current:
-                current["energy_mj"] = float(m_energy.group(1))
-                continue
+                # --- New round (Epoch block) ---
+                m_epoch = re.search(r"Round\s+(\d+)\s*Test Acc:\s*([\d.]+)\s*Test Loss:\s*([\d.]+)\s*Comm \(KB\):\s*([\d.]+)\s*Energy \(mJ\):\s*([\d.]+)\s*Anomaly Score:\s*([\d.]+)\s*Rejection Ratio:\s*([\d.]+)", line)
+                if m_epoch:
+                    if "round" in current:
+                        metrics.append(current)
+                        current = {}
+                    current["round"] = int(m_epoch.group(1))
+                    current["val_acc"] = float(m_epoch.group(2)) * 100 # Convert to percentage
+                    current["val_loss"] = float(m_epoch.group(3))
+                    current["comm_kb"] = float(m_epoch.group(4))
+                    current["energy_mj"] = float(m_epoch.group(5))
+                    current["anomaly_score"] = float(m_epoch.group(6))
+                    current["rejection_ratio"] = float(m_epoch.group(7))
+                    # Active clients and reputation score are not easily parsed from this single line
+                    # If needed, more complex regex or multi-line parsing would be required.
+                    continue
+                
+                # Fallback for older log formats if needed, but prioritize the new structured log line
+                m_old_epoch = re.search(r"Epoch\s+(\d+)\s*Train Acc:\s*([\d.]+)\s*Train loss:\s*([\d.]+)\s*Test Acc:\s*([\d.]+)\s*Test loss:\s*([\d.]+)", line)
+                if m_old_epoch:
+                    if "round" in current:
+                        metrics.append(current)
+                        current = {}
+                    current["round"] = int(m_old_epoch.group(1))
+                    current["train_acc"] = float(m_old_epoch.group(2))
+                    current["train_loss"] = float(m_old_epoch.group(3))
+                    current["val_acc"] = float(m_old_old_epoch.group(4)) * 100 # Convert to percentage
+                    current["val_loss"] = float(m_old_epoch.group(5))
+                    continue
 
-            # --- Defense rejected count ---
-            # Example: [Server]   Defense rejected: 6/30 updates
-            m_rej = re.search(r"Defense rejected:\s*(\d+)\s*/\s*(\d+)\s*updates", line)
-            if m_rej and "round" in current:
-                rejected = int(m_rej.group(1))
-                total = int(m_rej.group(2))
-                current["rejected"] = rejected
-                current["total_updates"] = total
-                if total > 0:
-                    current["rejected_ratio"] = rejected / total
-                continue
+                m_comm = re.search(r"Communication \(KB\):\s*([\d.]+)", line)
+                if m_comm:
+                    current["comm_kb"] = float(m_comm.group(1))
+                    continue
 
-            # --- Anomaly mean ---
-            # Block structure:
-            # [Server] Anomaly Scores:
-            # [Server]   Mean:   0.2914
-            if "Anomaly Scores:" in line and "round" in current:
-                expect_anomaly_mean = True
-                continue
+                m_energy = re.search(r"Energy \(mJ\):\s*([\d.]+)", line)
+                if m_energy:
+                    current["energy_mj"] = float(m_energy.group(1))
+                    continue
 
-            if expect_anomaly_mean and "Mean:" in line and "round" in current:
-                m_anom = re.search(r"Mean:\s*([\d.]+)", line)
-                if m_anom:
-                    current["anomaly_mean"] = float(m_anom.group(1))
-                expect_anomaly_mean = False
-                continue
+                m_rejected = re.search(r"Rejected ratio:\s*([\d.]+)", line)
+                if m_rejected:
+                    current["rejection_ratio"] = float(m_rejected.group(1))
+                    continue
 
-            # --- Reputation mean ---
-            # [Server] Reputations:
-            # [Server]   Mean:   0.402
-            if "Reputations:" in line and "round" in current:
-                expect_reputation_mean = True
-                continue
-
-            if expect_reputation_mean and "Mean:" in line and "round" in current:
-                m_rep = re.search(r"Mean:\s*([\d.]+)", line)
-                if m_rep:
-                    current["reputation_mean"] = float(m_rep.group(1))
-                expect_reputation_mean = False
-                continue
-
-    # store last round
-    if "round" in current:
-        metrics.append(current)
+        # store last round
+        if "round" in current:
+            metrics.append(current)
 
     return metrics
 
@@ -256,7 +272,31 @@ def plot_metrics(metrics):
         plt.tight_layout()
         plt.savefig(Path(PLOTS_DIR) / "anomaly_reputation_vs_round.pdf", dpi=300)
         plt.close()
-        print(f"Saved {PLOTS_DIR}anomaly_reputation_vs_round.pdf")
+    print(f"Saved {PLOTS_DIR}anomaly_reputation_vs_round.pdf")
+
+
+def plot_comparative_comm_energy(experiment_logs, output_path, metric_key, title, ylabel):
+    setup_paper_style()
+    plt.figure(figsize=(10, 6))
+
+    for name, log_file in experiment_logs.items():
+        metrics = parse_log(log_file)
+        xs, ys = get_xy(metrics, metric_key)
+        if xs:
+            plt.plot(xs, ys, label=name, marker='o', markersize=4)
+
+    plt.xlabel("Round")
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    output_dir = Path(output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_dir / f"{metric_key}_comparative_vs_round.pdf", dpi=300)
+    plt.close()
+    print(f"Saved {output_dir / f'{metric_key}_comparative_vs_round.pdf'}")
 
 
 def main():
@@ -269,6 +309,26 @@ def main():
     save_csv(metrics, CSV_PATH)
     plot_metrics(metrics)
     plot_cumulative_metrics(metrics) # Call the new cumulative plotting function
+
+    comparative_logs = {
+        "Model_1": "./logs/FedOpt/MNIST_lenet/iid/MNIST_lenet_iid_NoAttack_SystemAware_50_50_0.005_FedOpt/training_metrics.json",
+        "Model_2": "./logs/FedOpt/MNIST_lenet/non-iid/MNIST_lenet_non-iid_AdaptiveAttack_SystemAware_5_5_0.01_FedOpt/training_metrics.json",
+        "Model_3": "./logs/FedOpt/MNIST_lenet/non-iid/MNIST_lenet_non-iid_NoAttack_SystemAware_100_150_0.01_FedOpt/training_metrics.json",
+    }
+    
+    valid_comparative_logs_comm = {}
+    valid_comparative_logs_energy = {}
+    for name, path in comparative_logs.items():
+        if Path(path).exists():
+            valid_comparative_logs_comm[name] = path
+            valid_comparative_logs_energy[name] = path
+        else:
+            print(f"Warning: Log file not found for {name}: {path}. Skipping for comparative plots.")
+
+    if valid_comparative_logs_comm:
+        plot_comparative_comm_energy(valid_comparative_logs_comm, PLOTS_DIR, "comm_kb", "Comparative Communication Cost vs Round", "Communication (KB)")
+    if valid_comparative_logs_energy:
+        plot_comparative_comm_energy(valid_comparative_logs_energy, PLOTS_DIR, "energy_mj", "Comparative Energy Consumption vs Round", "Energy (mJ)")
 
 
 if __name__ == "__main__":

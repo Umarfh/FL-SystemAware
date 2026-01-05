@@ -1,0 +1,43 @@
+{
+    "rounds": [
+        {
+            "round": 1,
+            "test_acc": 0.10349999999998964,
+            "test_loss": 2.3038020435330946,
+            "asr": null,
+            "asr_loss": null,
+            "round_time": 486.9516689777374,
+            "active_clients": 90,
+            "stragglers": null,
+            "dropouts": null,
+            "communication_cost_kb": 15993.066918486888,
+            "energy_consumption_mj": 16005.465041986456,
+            "anomaly_score": 0.23981234995684148,
+            "rejection_ratio": 0.0,
+            "model_size_kb": 173.5390625,
+            "alpha_scaling_factor": 0.1,
+            "beta_scaling_factor": 1.0,
+            "energy_offset": 10.0
+        },
+        {
+            "round": 2,
+            "test_acc": 0.09579999999999042,
+            "test_loss": 2.831693858337119,
+            "asr": null,
+            "asr_loss": null,
+            "round_time": 603.8939166069031,
+            "active_clients": 90,
+            "stragglers": null,
+            "dropouts": null,
+            "communication_cost_kb": 16038.462491628103,
+            "energy_consumption_mj": 16051.151267416475,
+            "anomaly_score": 0.268877578837204,
+            "rejection_ratio": 0.0,
+            "model_size_kb": 173.5390625,
+            "alpha_scaling_factor": 0.1,
+            "beta_scaling_factor": 1.0,
+            "energy_offset": 10.0
+        }
+    ],
+    "final_test_accuracy": 0.10349999999998964
+}

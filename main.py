@@ -15,7 +15,7 @@ Includes:
 
 import sys
 import os
-import datetime     # <-- add this
+import datetime
 
 import gc
 import logging
@@ -88,6 +88,7 @@ class TrainingMetrics:
         self.energy_per_round: List[float] = []
         self.comm_kb_per_round: List[float] = []
         self.attack_success: List[bool] = []
+        self.rounds: List[Dict[str, Any]] = [] # New attribute to store detailed round logs
 
     def to_dict(self):
         return {
@@ -100,7 +101,8 @@ class TrainingMetrics:
             'straggler_counts': self.straggler_counts,
             'energy_per_round': self.energy_per_round,
             'comm_kb_per_round': self.comm_kb_per_round,
-            'attack_success': self.attack_success
+            'attack_success': self.attack_success,
+            'rounds': self.rounds # Include the new detailed round logs
         }
 
     def save(self, path: Path):
@@ -409,12 +411,43 @@ class FederatedLearningOrchestrator:
 
             self.metrics.attack_success.append(bool(attack_happened))
 
+            # Prepare round_log for training_metrics.json
+            test_acc = test_stats.get('test_acc', 0.0)
+            test_loss = test_stats.get('test_loss', 0.0)
+            comm_kb = self.metrics.comm_kb_per_round[-1] if self.metrics.comm_kb_per_round else 0.0
+            energy_mj = self.metrics.energy_per_round[-1] if self.metrics.energy_per_round else 0.0
+            num_rejected = self.server.last_filter_stats.get('rejected', 0)
+            num_selected_clients = len(active_clients) # Total clients selected for this round
+
+            anomaly_scores = self.server.last_anomaly_scores
+            reputation_scores = self.server.last_reputation_scores
+
+            round_log = {
+                "round": global_epoch,
+                "test_acc": test_acc,
+                "test_loss": test_loss,
+                "communication_cost_kb": comm_kb,
+                "energy_consumption_mj": energy_mj,
+
+                # REQUIRED for missing figures
+                "anomaly_mean": float(np.mean(anomaly_scores)) if anomaly_scores else 0.0,
+                "anomaly_max": float(np.max(anomaly_scores)) if anomaly_scores else 0.0,
+
+                "reputation_mean": float(np.mean(reputation_scores)) if reputation_scores else 0.0,
+                "reputation_min": float(np.min(reputation_scores)) if reputation_scores else 0.0,
+
+                "rejected": int(num_rejected),
+                "rejected_ratio": float(num_rejected / num_selected_clients) if num_selected_clients > 0 else 0.0
+            }
+            self.metrics.rounds.append(round_log)
+
+
             # log summary
             msg = (f"Epoch {global_epoch:<3}\t"
                    f"Train Acc: {avg_value(avg_train_acc):.4f}\t"
                    f"Train loss: {avg_value(avg_train_loss):.4f}\t"
-                   f"Test Acc: {test_stats.get('test_acc', 0.0):.4f}\t"
-                   f"Test Loss: {test_stats.get('test_loss', 0.0):.4f}")
+                   f"Test Acc: {test_acc:.4f}\t"
+                   f"Test Loss: {test_loss:.4f}")
             self.logger.info(msg)
 
             gc.collect()
@@ -435,6 +468,7 @@ class FederatedLearningOrchestrator:
         out_dir = Path(self.args.output)
         out_dir.mkdir(parents=True, exist_ok=True)
         metrics_path = out_dir / "training_metrics.json"
+        self.logger.info(f"Attempting to save training metrics to: {metrics_path}") # Added log
         self.metrics.save(metrics_path)
         try:
             plot_accuracy(self.args.output)
